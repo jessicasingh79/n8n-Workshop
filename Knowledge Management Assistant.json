@@ -1,0 +1,238 @@
+{
+  "name": "Knowledge Management Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Get snippets from Pinecone Assistant\nconst snippets = $json.snippets || [];\n\n// Get current question and conversation history\nconst chatInput = $('Webhook').item.json.body.question;\nconst conversationHistory = $('Webhook').item.json.body.conversation_history || [];\n\n// Filter for high-confidence results\nconst highConfidenceSnippets = snippets.filter(s => s.score > 0.75);\n\n// Build context with sources\nconst contextWithSources = highConfidenceSnippets.map((s, index) => {\n  const source = s.metadata?.file?.name || s.reference?.file?.name || 'Unknown source';\n  return `[Source ${index + 1}: ${source}]\\n${s.content}`;\n}).join('\\n\\n---\\n\\n');\n\nconst hasGoodContext = highConfidenceSnippets.length > 0;\n\n// Extract unique sources\nconst sources = [...new Set(highConfidenceSnippets.map(s => \n  s.metadata?.file?.name || s.reference?.file?.name || 'Unknown'\n))];\nconst sourcesList = sources.map((s, i) => `[${i + 1}] ${s}`).join('\\n');\n\n// Build conversation context (last 3 turns)\nconst recentHistory = conversationHistory.slice(-6); // Last 3 Q&A pairs\nconst historyText = recentHistory.length > 0 \n  ? `\\n\\nPrevious conversation:\\n${recentHistory.map(msg => `${msg.role}: ${msg.content}`).join('\\n')}`\n  : '';\n\nreturn {\n  json: {\n    messages: [\n      {\n        role: 'system',\n        content: 'You are a helpful assistant. Answer ONLY based on the provided context. If the user message says you do not have confident information, respond with exactly that — do not answer from your own knowledge under any circumstances.'\n      },\n      {\n        role: 'user',\n        content: hasGoodContext\n          ? `Context:\\n${contextWithSources}${historyText}\\n\\nCurrent question: ${chatInput}\\n\\nInstructions:\\n1. Answer using context and conversation history\\n2. Be concise (2-3 sentences)\\n3. End with:\\n\\nSources:\\n[1] filename.pdf\\n\\nAvailable sources:\\n${sourcesList}`\n          : `I don't have confident information about \"${chatInput}\" in my knowledge base.`\n      }\n    ],\n    conversation_history: conversationHistory,\n    current_question: chatInput\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        -96
+      ],
+      "id": "71d0c734-0d98-43ad-bd48-d1ade05a8a43",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.messages[1].content }}"
+            },
+            {
+              "content": "={{ $json.messages[0].content }}",
+              "role": "system"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        736,
+        -112
+      ],
+      "id": "f5d9bc69-4ba9-4efa-b174-0318af925d70",
+      "name": "Message a model",
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assistantData": "{\"name\":\"rag-assistant\",\"host\":\"https://prod-1-data.ke.pinecone.io\"}",
+        "query": "={{ $('Webhook').item.json.body.question }}",
+        "additionalFields": {
+          "topK": 5
+        }
+      },
+      "type": "@pinecone-database/n8n-nodes-pinecone-assistant.pineconeAssistant",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -112
+      ],
+      "id": "34d18a4f-4c86-408c-a6a1-81533e66bbea",
+      "name": "Get context snippets",
+      "credentials": {
+        "pineconeAssistantApi": {
+          "id": "CuyC0eJa8LddnDU8",
+          "name": "Pinecone Assistant -Workshop"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ask",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -448,
+        -96
+      ],
+      "id": "59d564bf-8a1c-477e-a3b6-8c8b2a53c864",
+      "name": "Webhook",
+      "webhookId": "aa1b9eb5-17c5-44cf-a819-f7321adcd22e"
+    },
+    {
+      "parameters": {
+        "content": "Webhook\nEntry point. Receives the question via POST.\nTest URL = testing mode only.\nProduction URL = live. \nAuth = none for now"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -528,
+        -272
+      ],
+      "id": "f6c06775-166b-4f4b-bef6-9318c3e31bf1",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "Get Context Snippets\nPinecone searches your docs.\nReturns top 5 most relevant chunks.\nSearches by MEANING not keywords.\nPaste API key here. Assistant name = rag-assistant",
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -112,
+        -304
+      ],
+      "id": "f2ba729d-bd7b-47e5-ae10-ef6238853650",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "JavaScript\nFilters chunks below 0.75 confidence.\nLabels each chunk with source file.\nBuilds the prompt.\nHandles last 3 conversation turns.\nI used Claude to write this — you can too.",
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        224,
+        -288
+      ],
+      "id": "3ac52712-5d29-4d48-927c-52160abc0adf",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.message.content }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1056,
+        -112
+      ],
+      "id": "44dbdd25-01a2-4c53-8d33-ca58dc23e479",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "content": "Message a Model\nSends prompt to GPT-4O-Mini.\nn8n Connect = no API key needed.\n$5 free credits on new account.\nSimplify output = clean text response.",
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        -320
+      ],
+      "id": "36cbafbd-dae8-4c40-9a0a-5cdd9c1a587e",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "If it answers something unrelated = update system prompt in JS node",
+        "color": "#D41111"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        256,
+        64
+      ],
+      "id": "7f52477f-2232-4a91-b4b7-acb129d643a5",
+      "name": "Sticky Note4"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get context snippets": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get context snippets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "195b92b9-db43-4498-aaa7-6ae2965dbc97",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cf046d5fbc431933c731a23ed6fa255983a7bcbb896ea21cef6218add034d758"
+  },
+  "id": "HnPgAQvQzCA8vGNQ",
+  "tags": []
+}
